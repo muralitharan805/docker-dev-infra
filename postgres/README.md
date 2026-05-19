@@ -98,84 +98,89 @@ SELECT id, embedding, embedding <=> '[3,2,1]' AS distance FROM test_embeddings O
 
 ---
 
-## 🔗 Standalone Execution & Creating Custom Databases (CRM & PMO)
+## 🔗 Dynamic & Automatic Multi-Database Provisioning
 
-By design, this container runs as a **pure standalone PostgreSQL database engine**. Once the service is running, you can connect to it using your favorite database client (such as DBeaver, pgAdmin, VS Code Database Extensions, or the command line `psql`) and manually create your databases for `CRM` and `PMO`.
-
----
-
-### Step 1: Connect to Standalone Engine
-Use the credentials specified in your `.env` to connect to the central instance:
-* **Host**: `localhost` (or `127.0.0.1`)
-* **Port**: `5432` *(or whatever `POSTGRES_PORT` is specified in your `.env`)*
-* **Default Database**: `vectordb` *(used to establish initial connection)*
-* **Username**: `vector_admin`
-* **Password**: `pgV3ct0r_53cur3_Pa55w0rd!`
-* **Admin Connection URI**:
-  ```text
-  postgresql://vector_admin:pgV3ct0r_53cur3_Pa55w0rd!@localhost:5432/vectordb
-  ```
+By design, this environment supports **fully automated multi-database provisioning**. Any new developer pulling this repository can immediately initialize multiple isolated databases (e.g. `civicpath`, `analytics_db`) pre-loaded with the `vector`, `postgis`, and `postgis_topology` extensions without writing a single line of SQL or running manual database commands.
 
 ---
 
-### Step 2: Create CRM and PMO Databases Manually
-You can create the databases using standard SQL or terminal tools.
+### Step 1: Define Databases in `.env`
+Databases are managed entirely through the `.env` file. To add or change databases, open the `.env` file and look for the `POSTGRES_MULTIPLE_DATABASES` variable. List your target databases separated by commas:
 
-#### Option A: SQL Command (Recommended)
-Connect to the database server using your client tool and run the following queries:
+```ini
+# Central default database (used to establish initial connection)
+POSTGRES_DB=vectordb
 
-```sql
--- 1. Create the CRM database and register pgvector
-CREATE DATABASE crm_db;
-\c crm_db;
-CREATE EXTENSION IF NOT EXISTS vector;
-
--- 2. Create the PMO database and register pgvector
-CREATE DATABASE pmo_db;
-\c pmo_db;
-CREATE EXTENSION IF NOT EXISTS vector;
+# Additional application databases to automatically create & initialize
+POSTGRES_MULTIPLE_DATABASES=civicpath,analytics_db
 ```
 
-#### Option B: Automated Terminal Commands
-Alternatively, you can create them directly from your shell by running `createdb` and `psql` execution queries inside the active container:
+---
 
+### Step 2: Run the Compose Setup
+When developers pull this code, they just run the standard compose up command:
 ```bash
-# 1. Create and initialize crm_db
-docker compose exec -it pgvector-db createdb -U vector_admin crm_db
-docker compose exec -it pgvector-db psql -U vector_admin -d crm_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
+# Make the helper entrypoint script executable (first-time setup only)
+chmod +x init-scripts/init-multiple-databases.sh
 
-# 2. Create and initialize pmo_db
-docker compose exec -it pgvector-db createdb -U vector_admin pmo_db
-docker compose exec -it pgvector-db psql -U vector_admin -d pmo_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
+# Build and start the container
+docker compose up -d
 ```
+
+During this initial startup, the container mounts and runs [01-init-multiple-databases.sh](file:///home/murali/Documents/genral-docker/postgres/init-scripts/init-multiple-databases.sh) **before** PostGIS registers itself. This automatically:
+1. Creates the primary `vectordb` and registers the extensions.
+2. Loops through `POSTGRES_MULTIPLE_DATABASES` and creates `civicpath` and `analytics_db`.
+3. Installs and registers the `vector`, `postgis`, and `postgis_topology` extensions inside every single database.
 
 ---
 
-### Step 3: Configure Your Local Projects
+### Step 3: Verification & Connection URIs
+Developers can verify that their databases were successfully created and the extensions are active:
 
-Once the databases are created, configure your respective projects using these standard connection strings:
+#### Verify PostGIS & Vector Extensions:
+```bash
+# Check 'civicpath' database
+docker compose exec -it pgvector-db psql -U vector_admin -d civicpath -c "SELECT PostGIS_Version();"
 
-#### 1. CRM Project Connection Settings:
-* **Database Host**: `localhost` *(or `pgvector-db` if running inside shared docker-compose networks)*
-* **Database Port**: `5432`
-* **Database Name**: `crm_db`
+# Check 'analytics_db' database
+docker compose exec -it pgvector-db psql -U vector_admin -d analytics_db -c "SELECT PostGIS_Version();"
+```
+
+#### Standard Connection Settings:
+Use the credentials specified in your `.env` to configure your applications:
+* **Host**: `localhost` (or `127.0.0.1` / `pgvector-db` if inside a shared docker network)
+* **Port**: `5432` *(or whatever `POSTGRES_PORT` is specified in your `.env`)*
 * **Username**: `vector_admin`
 * **Password**: `pgV3ct0r_53cur3_Pa55w0rd!`
-* **Connection String / URI**:
-  ```text
-  postgresql://vector_admin:pgV3ct0r_53cur3_Pa55w0rd!@localhost:5432/crm_db
-  ```
+* **Connection URIs**:
+  * **Civicpath**: `postgresql://vector_admin:pgV3ct0r_53cur3_Pa55w0rd!@localhost:5432/civicpath`
+  * **Analytics**: `postgresql://vector_admin:pgV3ct0r_53cur3_Pa55w0rd!@localhost:5432/analytics_db`
 
-#### 2. PMO Project Connection Settings:
-* **Database Host**: `localhost` *(or `pgvector-db` if running inside shared docker-compose networks)*
-* **Database Port**: `5432`
-* **Database Name**: `pmo_db`
-* **Username**: `vector_admin`
-* **Password**: `pgV3ct0r_53cur3_Pa55w0rd!`
-* **Connection String / URI**:
-  ```text
-  postgresql://vector_admin:pgV3ct0r_53cur3_Pa55w0rd!@localhost:5432/pmo_db
-  ```
+---
+
+### ⚠️ Adding a New Database Later
+If a developer already has a running container and wants to add a new database:
+
+1. **Option A: Hot-Fix (Preserves active data)**:
+   Add the database to the `.env` list, then manually execute the setup:
+   ```bash
+   docker compose exec -it pgvector-db psql -U vector_admin -d vectordb
+   ```
+   ```sql
+   CREATE DATABASE my_new_db;
+   \c my_new_db
+   CREATE EXTENSION IF NOT EXISTS vector;
+   CREATE EXTENSION IF NOT EXISTS postgis;
+   CREATE EXTENSION IF NOT EXISTS postgis_topology;
+   ```
+
+2. **Option B: Reset & Re-initialize (Destroys local database state)**:
+   If there is no critical local data, simply update the `POSTGRES_MULTIPLE_DATABASES` variable in your `.env` and rebuild the persistent volume:
+   ```bash
+   # Wipes the persistent volume and starts clean
+   docker compose down -v
+   docker compose up -d
+   ```
 
 ---
 

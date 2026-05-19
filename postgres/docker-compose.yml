@@ -12,6 +12,7 @@ services:
     # Environment isolation - credentials loaded from local .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_MULTIPLE_DATABASES: ${POSTGRES_MULTIPLE_DATABASES}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
@@ -24,7 +25,7 @@ services:
     # 2. Bind-mounted init script enables auto-creation of the vector extension on initial startup.
     volumes:
       - pgvector_data:/var/lib/postgresql/data
-      - ./init-scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./init-scripts/init-multiple-databases.sh:/docker-entrypoint-initdb.d/01-init-multiple-databases.sh:ro
 
     # Network isolation - bridges communications with standard, isolated bridge driver
     networks:
