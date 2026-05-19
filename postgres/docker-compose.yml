@@ -1,0 +1,59 @@
+services:
+  pgvector-db:
+    # Build configuration to compile pgvector v0.8.2 locally
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Tag the built image deterministically to allow easy reuse across other projects
+    image: local/postgres-pgvector-postgis:16-alpine
+    container_name: pgvector-db
+    restart: unless-stopped
+
+    # Environment isolation - credentials loaded from local .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    # Port mapping using dynamic variable interpolation with 5432 default fallback
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+    # Volume and Storage separation:
+    # 1. Named volume 'pgvector_data' ensures data persistence independent of container lifecycle.
+    # 2. Bind-mounted init script enables auto-creation of the vector extension on initial startup.
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+      - ./init-scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+    # Network isolation - bridges communications with standard, isolated bridge driver
+    networks:
+      - pgvector_network
+
+    # Advanced resource controls to prevent high-resource vector builds from freezing the host
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1500M
+
+    # Explicit Service Health check utilizing pg_isready utility.
+    # The double '$$' is required in Compose files to escape environment variables for runtime shell.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: ${HEALTHCHECK_INTERVAL:-10s}
+      timeout: ${HEALTHCHECK_TIMEOUT:-5s}
+      retries: ${HEALTHCHECK_RETRIES:-5}
+      start_period: ${HEALTHCHECK_START_PERIOD:-5s}
+
+# Named persistent volumes for stateful storage
+volumes:
+  pgvector_data:
+    name: pgvector_data_volume
+    driver: local
+
+# Private bridge networks for service isolation
+networks:
+  pgvector_network:
+    name: pgvector_network
+    driver: bridge
