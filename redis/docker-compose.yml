@@ -18,6 +18,16 @@ services:
       retries: 3
       start_period: 5s
 
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: redisinsight-dev
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:5540"
+    depends_on:
+      redis:
+        condition: service_healthy
+
 volumes:
   redis_data:
     name: redis_dev_data
